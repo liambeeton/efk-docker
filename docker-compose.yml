@@ -1,0 +1,93 @@
+version: '3.7'
+
+services:
+  fluentd:
+    image: ${FLUENTD_IMAGE}
+    container_name: fluentd
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    volumes:
+      - ./fluentd/etc:/fluentd/etc
+    networks:
+      - docker-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1G"
+        max-file: "2"
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE}
+    container_name: elasticsearch
+    depends_on:
+      - fluentd
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - docker-network
+    environment:
+      - "node.name=HEYJUDE"
+      - "discovery.type=single-node"
+      - "bootstrap.memory_lock=true"
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        fluentd-async-connect: "true"
+        fluentd-retry-wait: "1s"
+        fluentd-max-retries: "30"
+        tag: ${LOG_OPT_TAG_PREFIX}.efk.elasticsearch
+
+  kibana:
+    image: ${KIBANA_IMAGE}
+    container_name: kibana
+    depends_on:
+      - elasticsearch
+      - fluentd
+    ports:
+      - "5601:5601"
+    networks:
+      - docker-network
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        fluentd-async-connect: "true"
+        fluentd-retry-wait: "1s"
+        fluentd-max-retries: "30"
+        tag: ${LOG_OPT_TAG_PREFIX}.efk.kibana
+
+  nginx:
+    image: ${NGINX_IMAGE}
+    container_name: nginx
+    depends_on:
+      - fluentd
+      - kibana
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - docker-network
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        fluentd-async-connect: "true"
+        fluentd-retry-wait: "1s"
+        fluentd-max-retries: "30"
+        tag: ${LOG_OPT_TAG_PREFIX}.efk.nginx
+
+networks:
+  docker-network:
+    driver: bridge
+
+volumes:
+  elasticsearch-data:
+    driver: local
